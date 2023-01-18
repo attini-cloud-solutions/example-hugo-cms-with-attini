@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform:
+  - AttiniDeploymentPlan
+  - AWS::Serverless-2016-10-31
+
+Parameters:
+  AttiniEnvironmentName:
+    Type: String
+
+  DomainName:
+    Type: String
+
+Resources:
+  HugoDeploymentPlan:
+    Type: Attini::Deploy::DeploymentPlan
+    Properties:
+      PayloadDefaults:
+        output:
+          Certificate:
+            CertificateArn: ""
+      DeploymentPlan:
+        - Name: Is custom domain configured?
+          Type: Choice
+          Condition:
+            Not:
+              Variable: $.stackParameters.DomainName
+              StringEquals: ""
+          IsTrue:
+            - Name: Certificate
+              Type: AttiniCfn
+              Properties:
+                StackName: !Sub ${AttiniEnvironmentName}-hugo-website-certificate
+                Template: /cloudformation/certificate.yaml
+                Parameters:
+                  DomainName.$: $.stackParameters.DomainName
+                Region: us-east-1
+        - Name: WebsiteInfra
+          Type: AttiniCfn
+          Properties:
+            StackName: !Sub ${AttiniEnvironmentName}-hugo-website-infrastructure
+            Template: /cloudformation/website.yaml
+            Parameters:
+              DomainName: !Ref DomainName
+              CertificateArn.$: $.output.Certificate.CertificateArn
+        - Name: DeployHugo
+          Type: AttiniRunnerJob
+          Properties:
+            Runner: HugoRunner
+            Commands:
+              - bash deploy-hugo.sh
+
+  HugoRunner:
+    Type: Attini::Deploy::Runner
+    Properties:
+      Image: public.ecr.aws/attini/attini-labs:hugo-build-image-2023-01-12
+      RoleArn: !GetAtt AttiniRunnerRole.Arn
+
+  AttiniRunnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Attini runner task role
+      Path: /attini/
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:aws:iam::${AWS::AccountId}:policy/attini-runner-basic-execution-policy-${AWS::Region}
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject*
+                  - s3:PutObject*
+                  - s3:DeleteObject*
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${AttiniEnvironmentName}-hugo-website-infrastructure-*/*
+                  - !Sub arn:aws:s3:::${AttiniEnvironmentName}-hugo-website-infrastructure-*
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:GetDistribution
+                  - cloudfront:ListDistributions
+                Resource: "*"

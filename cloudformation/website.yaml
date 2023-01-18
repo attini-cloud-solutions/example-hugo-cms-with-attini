@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Static website with s3 and cloudfront
+
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: ""
+
+  CertificateArn:
+    Type: String
+    Default: ""
+
+  PriceClass:
+    Type: String
+    Description: The CloudFront distribution price class
+    AllowedValues:
+      - PriceClass_100
+      - PriceClass_200
+      - PriceClass_All
+    Default: PriceClass_100
+
+
+Conditions:
+  ConfigureCustomDomain:
+    !Not
+      - !Equals
+        - !Ref DomainName
+        - ""
+
+
+Resources:
+  WebassetsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: MultipartUploadLifecycleRule
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: NoncurrentVersionExpirationInDays
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: false
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebassetsBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicAccess
+            Principal: "*"
+            Action:
+              - s3:GetObject
+            Effect: Allow
+            Resource: !Sub arn:aws:s3:::${WebassetsBucket}/*
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          !If
+            - ConfigureCustomDomain
+            - - !Ref DomainName
+            - !Ref AWS::NoValue
+        Comment: Static Webassets Distribution
+        Origins:
+          - DomainName: !Sub ${WebassetsBucket}.s3-website.${AWS::Region}.amazonaws.com
+            Id: website
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only # S3 web hosting only supports http
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - "HEAD"
+            - "GET"
+            - "OPTIONS"
+          CachedMethods:
+            - "HEAD"
+            - "GET"
+          CachePolicyId: b2884449-e4de-46a7-ac36-70bc7f1ddd6d # Standard Cloudfront cashing policy
+          TargetOriginId: website
+          ViewerProtocolPolicy: redirect-to-https
+        DefaultRootObject: index.html
+        Enabled: True
+        PriceClass: !Ref PriceClass
+        CustomErrorResponses:
+        - ErrorCode: 403
+          ResponseCode: 404
+          ResponsePagePath: /404.html
+        ViewerCertificate:
+          !If
+            - ConfigureCustomDomain
+            - AcmCertificateArn: !Ref CertificateArn
+              MinimumProtocolVersion: TLSv1.2_2018
+              SslSupportMethod: sni-only
+            - !Ref AWS::NoValue
+
+
+Outputs:
+  Bucket:
+    Description: The name of the S3 bucket for the Static hostname
+    Value: !Ref WebassetsBucket
+
+  CloudFrontDomainName:
+    Description: The CloudFront domain name
+    Value: !GetAtt CloudFrontDistribution.DomainName
+
+  CloudFrontId:
+    Description: The CloudFront id
+    Value: !Ref CloudFrontDistribution

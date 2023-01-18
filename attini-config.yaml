@@ -1,0 +1,18 @@
+# https://docs.attini.io/api-reference/attini-configuration.html
+distributionName: hugo-website
+
+package:
+  prePackage:
+    commands:
+      - attini configure set-dist-id --random
+
+initDeployConfig:
+  template: /deployment-plan.yaml
+  stackName: ${environment}-${distributionName}-deployment-plan
+  parameters:
+    default:
+      DomainName: ""
+    dev:
+      DomainName: ""
+    production:
+      DomainName: attini.io

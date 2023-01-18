@@ -1,0 +1,27 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Public certificate deployed in us-east-1 (global region)
+
+
+Parameters:
+  DomainName:
+    Type: String
+
+
+Resources:
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          ValidationDomain: !Ref DomainName
+      SubjectAlternativeNames:
+        - !Ref DomainName
+        - !Sub "*.${DomainName}"
+      ValidationMethod: DNS
+
+
+Outputs:
+  CertificateArn:
+    Description: Certificate Arn
+    Value: !Ref Certificate
